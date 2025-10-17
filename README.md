@@ -1,2 +1,2 @@
-# lingua-live
-Your nosey sidekick
+# LinguaLive
+
