@@ -4,8 +4,15 @@ import requests
 # --- constants
 
 LLM_URL = "http://localhost:11434/api/generate" # ollama api endpoint
-MODEL_NAME = "wizardlm2:7b"
-# MODEL_NAME = "llama3.1:latest"
+MODEL_NAME = "qwen3.5:9b"
+CONTEXT_SIZE = 4096 # small context keeps the model fully on the gpu
+TRANSCRIPT_WORDS = 1500 # most recent words sent to the model - leaves room in the context for the instructions and reply
+
+# --- trims a transcript to its most recent words
+
+def trim(text, max_words = TRANSCRIPT_WORDS):
+    words = text.split()
+    return " ".join(words[-max_words:])
 
 # --- A simple text analysis class
 
@@ -24,7 +31,8 @@ class Analyser:
     # --- analyse an utterance
 
     def analyse(self, utterance):
-        if not utterance.strip():
+        utterance = trim(utterance)
+        if not utterance:
             return []
 
         try:
@@ -33,7 +41,9 @@ class Analyser:
                 json = {
                     "model":  MODEL_NAME,
                     "prompt": self._prompt(utterance),
-                    "stream": False
+                    "stream": False,
+                    "think":  False,
+                    "options": { "num_ctx": CONTEXT_SIZE }
                 }
             )
 
@@ -49,27 +59,34 @@ class Analyser:
 
     def _prompt(self, utterance):
         return f"""
-You are given transcribed speech that may include misheard words. Use the full context to correct obvious transcription errors.
+You are the listener's secret side-kick in a live conversation. You help them contribute with accurate, specific and useful points.
 
-Your role is to analyse the text to provide short, punchy, insightful comments to a listener.
+You are given an automatic transcript of the conversation. It mixes everyone who is speaking, including the listener, and has no speaker labels. It may contain misheard words, such as "kabir nets" for "Kubernetes". Work out the intended meaning from context, and ignore anything you cannot interpret rather than guessing.
 
-You are the listener's secret side-kick and your purpose is to make them look good and make them appear knowledgeable and wise.
+Focus on the most recent part of the conversation, which is at the end of the text. Earlier text is only context.
 
-In your analysis you will return a JSON array where each entry is one of the following types:
+Return a JSON array of 2 to 4 entries. Each entry must be one of these types:
 
-* Information | type: "understand" | concise definition or overvier of a key topic, item or theme that is mentioned in the text
-* Theme       | type: "contribute" | quick things that the listener can add to the conversation - worded as a direct quote that the listener can add
-* Challenge   | type: "challenge"  | a quick challenge that the listener can give the speaker - worded as a quote that the listener can ask
+* Information | type: "understand"  | a concise definition or overview of a key topic, term or idea mentioned in the conversation
+* Theme       | type: "contribute" | a relevant point the listener could add - written in the first person as a direct quote, e.g. "In my experience, ..."
+* Challenge   | type: "challenge"  | a respectful challenge or probing question the listener could put to the speaker - written as a direct quote, e.g. "What evidence do we have that ...?"
+
+Rules:
+* "name" is a short, specific title for the topic, such as "Kubernetes" or "Migration risk" - never generic such as "Insight" or "Question"
+* every "name" must be unique within the array
+* "text" is a single paragraph of at most 32 words
+* do not repeat or restate what was just said - add something new
+* be factual - do not invent statistics, quotes or sources
 
 Format:
 [
-    {{{{ "type": "<one from the listed items above>", "name": "<a non-empty item name>", "text": "<a paragraph of maximum of 32 words>" }}}},
-    more such items...
+    {{ "type": "understand", "name": "<specific topic title>", "text": "<at most 32 words>" }},
+    more such entries...
 ]
 
 All output must be valid JSON - no other commentary or explanation.
 
 { self.cue }
 
-Speaker text is: { json.dumps(utterance) }
+Transcript: { json.dumps(utterance) }
 """
